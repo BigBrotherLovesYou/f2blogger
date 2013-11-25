@@ -1,10 +1,8 @@
 #!/usr/bin/perl
 # Copyright Pablo Rönnebarth true1984 at gmail dot com
 # GNU General Public License, version 3 (GPL-3.0)
-# http://opensource.org/licenses/GPL-3.0
 # simple script to watch the fail2ban log
-# and output html with banned ips
-
+# and generate a map+chart
 =head#### TODO #########################
 
 
