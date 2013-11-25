@@ -3,6 +3,7 @@
 # GNU General Public License, version 3 (GPL-3.0)
 # simple script to watch the fail2ban log
 # and generate a map+chart
+
 =head#### TODO #########################
 
 
@@ -214,25 +215,28 @@ POE::Session->create(
         }, },
     args => [ $cfg->val( 'logs', 'fail2banlog' ) ], );
 
-sub get_db_info{
-        my @results;
-    my %freq;
-    my $counter = "0";
-    my @output_c;
-    my @output_nr;
+# how many countries have we got ?
+sub count_countries {
+    my @results;
 
-    # how many countries have we got?
-    my $sql2 = "SELECT country FROM wannabe";
-    my $sth2 = $dbh->prepare($sql2) or die "Couldn't prepare statement: " . $dbh->errstr;
-    $sth2->execute() or die "Couldn't execute statement: " . $sth2->errstr;
+    my $sql = "SELECT country FROM wannabe";
+    my $sth = $dbh->prepare($sql) or die "Couldn't prepare statement: " . $dbh->errstr;
+    $sth->execute() or die "Couldn't execute statement: " . $sth2->errstr;
 
     # get all countrycodes in DB, uniq them
-    while ( my @data = $sth2->fetchrow_array() ) {
+    while ( my @data = $sth->fetchrow_array() ) {
         push @results, $data[0];
     }
     @results = uniq @results;
+    return @results;
+}
 
-    # how may have we got per country, excluding internal ips
+# how may have we got per country, excluding internal ips
+sub count_attacks {
+    my %freq;
+    my @results;
+
+    @results = count_countries();
     my $sql = 'SELECT * FROM wannabe WHERE country = ? AND NOT ip = "internal_ip"';
     my $sth = $dbh->prepare($sql) or die "Couldn't prepare statement: " . $dbh->errstr;
     foreach my $country (@results) {
@@ -241,6 +245,17 @@ sub get_db_info{
             $freq{$country}++;
         }
     }
+    return %freq;
+}
+
+sub get_db_info {
+
+    my %freq;
+    my $counter = "0";
+    my @output_c;
+    my @output_nr;
+
+    %freq = count_attacks();
 
     my @countries = keys %freq;
     my @attacks   = values %freq;
@@ -268,6 +283,7 @@ sub get_db_info{
     } else {
         $output_c[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] = "other:";
     }
+
 }
 
 sub write_files {
@@ -368,102 +384,8 @@ sub create_map {
 
 }
 
-sub create_chart2 {
-
-    my @results;
-    my %freq;
-
-    # how many countries have we got?
-    my $sql2 = "SELECT country FROM wannabe";
-    my $sth2 = $dbh->prepare($sql2) or die "Couldn't prepare statement: " . $dbh->errstr;
-    $sth2->execute() or die "Couldn't execute statement: " . $sth2->errstr;
-
-    # get all countrycodes in DB, uniq them
-    while ( my @data = $sth2->fetchrow_array() ) {
-        push @results, $data[0];
-    }
-    @results = uniq @results;
-
-    # how may have we got per country, excluding internal ips
-    my $sql = 'SELECT * FROM wannabe WHERE country = ? AND NOT ip = "internal_ip"';
-    my $sth = $dbh->prepare($sql) or die "Couldn't prepare statement: " . $dbh->errstr;
-    foreach my $country (@results) {
-        $sth->execute($country) or die "Couldn't execute statement: " . $sth->errstr;
-        while ( my @data = $sth->fetchrow_array() ) {
-            $freq{$country}++;
-        }
-    }
-
-    my @countries = keys %freq;
-    my @attacks   = values %freq;
-    my @data      = ( \@countries, \@attacks );
-    my $mygraph   = GD::Graph::pie->new( 300, 300 );
-    $mygraph->set_title_font( 'FreeMono.ttf', 13 );
-    $mygraph->set_label_font( 'FreeMono.ttf', 8 );
-    $mygraph->set_value_font( 'FreeMono.ttf', 8 ); # does not seem to make a difference?
-                                                   # title => 'Distribuiton of attackers',
-    $mygraph->set( '3d' => 1, ) or warn $mygraph->error;
-    my $myimage = $mygraph->plot( \@data ) or die $mygraph->error;
-    open( my $img, '>', $pie_image ) or die $!;
-    binmode $img;
-    print $img $myimage->png;
-}
-
 sub create_chart {
 
-    my @results;
-    my %freq;
-    my $counter = "0";
-    my @output_c;
-    my @output_nr;
-
-    # how many countries have we got?
-    my $sql2 = "SELECT country FROM wannabe";
-    my $sth2 = $dbh->prepare($sql2) or die "Couldn't prepare statement: " . $dbh->errstr;
-    $sth2->execute() or die "Couldn't execute statement: " . $sth2->errstr;
-
-    # get all countrycodes in DB, uniq them
-    while ( my @data = $sth2->fetchrow_array() ) {
-        push @results, $data[0];
-    }
-    @results = uniq @results;
-
-    # how may have we got per country, excluding internal ips
-    my $sql = 'SELECT * FROM wannabe WHERE country = ? AND NOT ip = "internal_ip"';
-    my $sth = $dbh->prepare($sql) or die "Couldn't prepare statement: " . $dbh->errstr;
-    foreach my $country (@results) {
-        $sth->execute($country) or die "Couldn't execute statement: " . $sth->errstr;
-        while ( my @data = $sth->fetchrow_array() ) {
-            $freq{$country}++;
-        }
-    }
-
-    my @countries = keys %freq;
-    my @attacks   = values %freq;
-
-    # now sort them, get the biggest perps
-    # all the rest goes into others
-    @countries = map $countries[$_],
-        sort { $attacks[$b] <=> $attacks[$a] } 0 .. $#countries;
-    foreach my $country (@countries) {
-        if ( $counter < $cfg->val( 'output', 'nr_countries_for_pie' ) ) {
-            $output_c[$counter]  = $country . ":" . $freq{$country};
-            $output_nr[$counter] = $freq{$country};
-        } elsif ( $counter == "$cfg->val( 'output', 'nr_countries_for_pie' )" ) {
-            $output_nr[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] = $freq{$country};
-        } else {
-            $output_nr[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] =
-                $output_nr[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] +
-                $freq{$country};
-        }
-        $counter++;
-    }
-    if ( $output_nr[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] ) {
-        $output_c[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] =
-            "other:" . $output_nr[ $cfg->val( 'output', 'nr_countries_for_pie' ) ];
-    } else {
-        $output_c[ $cfg->val( 'output', 'nr_countries_for_pie' ) ] = "other:";
-    }
 
     my @data = ( \@output_c, \@output_nr );
     my $mygraph = GD::Graph::pie->new( 300, 300 );
@@ -480,8 +402,8 @@ sub create_chart {
 
 sub get_latest_inserts {
     my $last = $_;
-    my $sql = 'SELECT * FROM wannabe WHERE id = ? AND NOT ip = "internal_ip"';
-    my $sth = $dbh->prepare($sql) or die "Couldn't prepare statement: " . $dbh->errstr;
+    my $sql  = 'SELECT * FROM wannabe WHERE id = ? AND NOT ip = "internal_ip"';
+    my $sth  = $dbh->prepare($sql) or die "Couldn't prepare statement: " . $dbh->errstr;
     foreach my $id ( reverse( $last - 6 .. $last ) ) {
         $sth->execute($id) or die "Couldn't execute statement: " . $sth->errstr;
         for ( my @data = $sth->fetchrow_array() ) {
